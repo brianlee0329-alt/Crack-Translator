@@ -134,6 +134,44 @@ GM_addStyle(`
     color: var(--text_primary, #1a1a1a);
   }
 
+  /* 수동 라벨 배지 (접힌 상태에서만 표시) */
+  .crk-prof-labels {
+    display: flex; gap: 4px; align-items: center; flex-wrap: wrap;
+  }
+  [data-crk-collapsed="0"] .crk-prof-labels { display: none; }
+  .crk-prof-label {
+    display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 4px;
+    background: color-mix(in srgb, var(--primary, #5b5bd6) 12%, transparent);
+    color: var(--primary, #5b5bd6); font-size: 11px; font-weight: 500; line-height: 1.6;
+    white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* 관리 모달: 프로필 라벨 편집 행 */
+  .crk-mgr-label-row {
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+    padding: 2px 0 2px 24px;
+  }
+  .crk-mgr-label-chip {
+    display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--primary, #5b5bd6) 10%, transparent);
+    color: var(--primary, #5b5bd6); font-size: 11px; font-weight: 500;
+  }
+  .crk-mgr-label-chip-del {
+    border: none; background: transparent; cursor: pointer; padding: 0;
+    color: inherit; font-size: 12px; line-height: 1; opacity: 0.6;
+    display: flex; align-items: center;
+  }
+  .crk-mgr-label-chip-del:hover { opacity: 1; }
+  .crk-mgr-label-add-input {
+    padding: 2px 6px; border: 1px dashed var(--outline_secondary, #d0cdc5);
+    border-radius: 4px; font-size: 11px; font-family: inherit;
+    background: transparent; color: var(--text_primary, #1a1a1a);
+    outline: none; width: 72px; min-width: 0;
+  }
+  .crk-mgr-label-add-input:focus { border-color: var(--primary, #5b5bd6); }
+  .crk-mgr-label-add-input::placeholder { color: var(--text_disabled, #bbb); }
+
   /* 접힌 카드: 내용 <p> 숨김 */
   [data-crk-collapsed="1"] > p.typo-text-md_leading-none_medium { display: none !important; }
   /* 접힌 카드: 패딩 축소 */
@@ -731,12 +769,50 @@ function _makeThrottle(fn, wait) {
    * @param {Element} modal
    */
   function transformCards(modal) {
+    const meta = loadMeta();
     for (const card of getPersonaCards(modal)) {
-      if (card.dataset.crkTransformed === '1') continue;
+      if (card.dataset.crkTransformed === '1') {
+        // 이미 변환된 카드도 라벨 배지는 갱신 (관리 모달에서 라벨 변경 후 재호출 시)
+        updateLabelBadges(card, meta);
+        continue;
+      }
       injectCollapseBtn(card);
-      card.dataset.crkCollapsed  = '1';  // 기본: 접힘
+      card.dataset.crkCollapsed  = '1';
       card.dataset.crkTransformed = '1';
+      updateLabelBadges(card, meta);
     }
+  }
+
+  /**
+   * 카드에 수동 라벨 배지를 주입/갱신한다.
+   * 이름 span의 부모 행 끝에 삽입. 접힌 상태에서만 CSS로 표시.
+   * [정적 캡처 기반 미검증]
+   * @param {Element} card
+   * @param {ReturnType<typeof defaultMeta>} meta
+   */
+  function updateLabelBadges(card, meta) {
+    const tag     = card.dataset.crkTag;
+    const profile = meta.profiles.find(p => p.tag === tag);
+    const labels  = profile?.labels ?? [];
+
+    card.querySelector('.crk-prof-labels')?.remove();
+    if (!labels.length) return;
+
+    // 이름 span의 부모(flex row) 끝에 배지 컨테이너 삽입
+    const nameSpan = card.querySelector('span.typo-text-base_leading-none_semibold');
+    const nameRow  = nameSpan?.parentElement;
+    if (!nameRow) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'crk-prof-labels';
+    for (const label of labels) {
+      const badge = document.createElement('span');
+      badge.className   = 'crk-prof-label';
+      badge.textContent = label;
+      badge.title       = label;
+      wrap.appendChild(badge);
+    }
+    nameRow.appendChild(wrap);
   }
 
   // ── 폴더 드롭다운 바 ──────────────────────────────────────────────
@@ -1126,16 +1202,28 @@ function _makeThrottle(fn, wait) {
     let dragSrcTag = null;
 
     for (const profile of profiles) {
-      const row = document.createElement('div'); row.className = 'crk-mgr-profile-row'; row.dataset.tag = profile.tag;
-      row.draggable = true;
+      // ── 외부 래퍼 (2행 구조) ──
+      const wrapper = document.createElement('div');
+      wrapper.className = 'crk-mgr-profile-row';
+      wrapper.style.cssText = 'flex-direction:column;align-items:stretch;gap:4px;';
+      wrapper.dataset.tag = profile.tag;
 
-      const handle = document.createElement('span'); handle.className = 'crk-mgr-drag-handle'; handle.textContent = '⠿';
+      // ── 상단 행: 핸들 / 이름 / 고유태그 / 폴더선택 ──
+      const mainRow = document.createElement('div');
+      mainRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      mainRow.draggable = true;
 
-      const nameSpan = document.createElement('span'); nameSpan.className = 'crk-mgr-profile-name'; nameSpan.textContent = profile.name;
-      const tagBadge = document.createElement('span'); tagBadge.className = 'crk-mgr-tag-badge'; tagBadge.textContent = `[${profile.tag}]`;
+      const handle  = document.createElement('span');
+      handle.className = 'crk-mgr-drag-handle'; handle.textContent = '⠿';
 
-      // 폴더 선택 드롭다운
-      const folderSel = document.createElement('select'); folderSel.className = 'crk-mgr-folder-select-sm';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'crk-mgr-profile-name'; nameSpan.textContent = profile.name;
+
+      const tagBadge = document.createElement('span');
+      tagBadge.className = 'crk-mgr-tag-badge'; tagBadge.textContent = `[${profile.tag}]`;
+
+      const folderSel = document.createElement('select');
+      folderSel.className = 'crk-mgr-folder-select-sm';
       for (const folder of [...meta.folders].sort((a, b) => a.order - b.order)) {
         const opt = document.createElement('option'); opt.value = folder.id; opt.textContent = folder.name;
         opt.selected = profile.folderId === folder.id; folderSel.appendChild(opt);
@@ -1151,24 +1239,27 @@ function _makeThrottle(fn, wait) {
       });
       folderSel.addEventListener('pointerdown', e => { e.stopPropagation(); });
 
-      // 드래그 (폴더 내 순서 변경)
-      row.addEventListener('dragstart', e => {
+      // 드래그: mainRow 기준
+      mainRow.addEventListener('dragstart', e => {
         dragSrcTag = profile.tag; e.dataTransfer.effectAllowed = 'move';
-        requestAnimationFrame(() => { row.dataset.dragging = '1'; });
+        requestAnimationFrame(() => { wrapper.dataset.dragging = '1'; });
       });
-      row.addEventListener('dragend', () => { delete row.dataset.dragging; dragSrcTag = null; });
-      row.addEventListener('dragover',  e => { e.preventDefault(); });
-      row.addEventListener('dragenter', e => { e.preventDefault(); if (dragSrcTag && dragSrcTag !== profile.tag) row.dataset.dragover = '1'; });
-      row.addEventListener('dragleave', e => { if (!row.contains(e.relatedTarget)) delete row.dataset.dragover; });
-      row.addEventListener('drop', e => {
-        e.preventDefault(); delete row.dataset.dragover;
+      mainRow.addEventListener('dragend', () => { delete wrapper.dataset.dragging; dragSrcTag = null; });
+      wrapper.addEventListener('dragover',  e => { e.preventDefault(); });
+      wrapper.addEventListener('dragenter', e => {
+        e.preventDefault();
+        if (dragSrcTag && dragSrcTag !== profile.tag) wrapper.dataset.dragover = '1';
+      });
+      wrapper.addEventListener('dragleave', e => {
+        if (!wrapper.contains(e.relatedTarget)) delete wrapper.dataset.dragover;
+      });
+      wrapper.addEventListener('drop', e => {
+        e.preventDefault(); delete wrapper.dataset.dragover;
         if (!dragSrcTag || dragSrcTag === profile.tag) return;
         const newMeta = loadMeta();
-        const srcP  = newMeta.profiles.find(p => p.tag === dragSrcTag);
-        const tgtP  = newMeta.profiles.find(p => p.tag === profile.tag);
+        const srcP = newMeta.profiles.find(p => p.tag === dragSrcTag);
+        const tgtP = newMeta.profiles.find(p => p.tag === profile.tag);
         if (!srcP || !tgtP || srcP.folderId !== tgtP.folderId) return;
-
-        // 같은 폴더 내 순서 재배정
         const folderProfiles = newMeta.profiles
           .filter(p => p.folderId === tgtP.folderId)
           .sort((a, b) => (a.folderOrder ?? 0) - (b.folderOrder ?? 0));
@@ -1182,8 +1273,76 @@ function _makeThrottle(fn, wait) {
         fillProfileList(container, newMeta, filterFolderId, chatModal);
       });
 
-      row.appendChild(handle); row.appendChild(nameSpan); row.appendChild(tagBadge); row.appendChild(folderSel);
-      container.appendChild(row);
+      mainRow.appendChild(handle);
+      mainRow.appendChild(nameSpan);
+      mainRow.appendChild(tagBadge);
+      mainRow.appendChild(folderSel);
+      wrapper.appendChild(mainRow);
+
+      // ── 하단 행: 수동 라벨 편집 ──
+      const labelRow = document.createElement('div');
+      labelRow.className = 'crk-mgr-label-row';
+
+      const renderLabelRow = () => {
+        labelRow.innerHTML = '';
+        const cur = (loadMeta().profiles.find(p => p.tag === profile.tag)?.labels ?? []);
+
+        // 기존 라벨 칩
+        for (const lbl of cur) {
+          const chip = document.createElement('span'); chip.className = 'crk-mgr-label-chip';
+          const txt  = document.createElement('span'); txt.textContent = lbl; txt.title = lbl;
+          const del  = document.createElement('button'); del.className = 'crk-mgr-label-chip-del'; del.textContent = '×'; del.title = '라벨 삭제';
+          del.addEventListener('click', () => {
+            const nm = loadMeta();
+            const pp = nm.profiles.find(p => p.tag === profile.tag); if (!pp) return;
+            pp.labels = (pp.labels ?? []).filter(l => l !== lbl);
+            saveMeta(nm);
+            // 카드 배지 갱신
+            const card = chatModal.querySelector(`[data-crk-tag="${profile.tag}"]`);
+            if (card) updateLabelBadges(card, nm);
+            renderLabelRow();
+          });
+          chip.appendChild(txt); chip.appendChild(del);
+          labelRow.appendChild(chip);
+        }
+
+        // 라벨 추가 입력 필드
+        const addInput = document.createElement('input');
+        addInput.type = 'text'; addInput.className = 'crk-mgr-label-add-input';
+        addInput.placeholder = '+ 라벨'; addInput.maxLength = 20;
+        addInput.addEventListener('keydown', e => {
+          if (e.key !== 'Enter') return;
+          const val = addInput.value.trim(); if (!val) return;
+          const nm = loadMeta();
+          const pp = nm.profiles.find(p => p.tag === profile.tag); if (!pp) return;
+          if (!(pp.labels ?? []).includes(val)) {
+            pp.labels = [...(pp.labels ?? []), val];
+            saveMeta(nm);
+            // 카드 배지 갱신
+            const card = chatModal.querySelector(`[data-crk-tag="${profile.tag}"]`);
+            if (card) updateLabelBadges(card, nm);
+          }
+          renderLabelRow();
+        });
+        // 포커스 아웃 시에도 확정
+        addInput.addEventListener('blur', () => {
+          const val = addInput.value.trim(); if (!val) return;
+          const nm = loadMeta();
+          const pp = nm.profiles.find(p => p.tag === profile.tag); if (!pp) return;
+          if (!(pp.labels ?? []).includes(val)) {
+            pp.labels = [...(pp.labels ?? []), val];
+            saveMeta(nm);
+            const card = chatModal.querySelector(`[data-crk-tag="${profile.tag}"]`);
+            if (card) updateLabelBadges(card, nm);
+            renderLabelRow();
+          }
+        });
+        labelRow.appendChild(addInput);
+      };
+
+      renderLabelRow();
+      wrapper.appendChild(labelRow);
+      container.appendChild(wrapper);
     }
   }
 
