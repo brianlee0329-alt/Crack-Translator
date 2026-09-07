@@ -44,6 +44,11 @@ TXT 추출 및 불러오기 지원
 
 ※ 업데이트 종료: 추후 이것을 기반으로 다른 확장 프로그램이 생성될 수는 있으나 짭차원이동의 기능적 업데이트는 완전 종료
 
+## 크랙 어사일럼
+
+# V1.2.7
+이전 세션의 요약본/요약 메모리 생성 후 신규 세션에 이식하는 기능
+
 # HTML 렌더링 지원(Crack HTML Renderer)
 ## 기본 기능
 크랙 플랫폼 환경에서 details, summary, div, aside, article, style, p, ul, li, ol, strong, br, b, i, em 문법을 지원하는 확장 프로그램
